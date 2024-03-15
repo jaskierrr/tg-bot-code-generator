@@ -4,6 +4,7 @@ import (
 	//"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	//"net/url"
@@ -22,7 +23,6 @@ func init() {
 		fmt.Println("No .env file found")
 	}
 }
-
 
 // This handler is called every time Telegram sends us a webhook event
 func Handler(res http.ResponseWriter, req *http.Request) {
@@ -52,22 +52,49 @@ func Handler(res http.ResponseWriter, req *http.Request) {
 
 	code := body.Message.Text
 
-	if err := sayTasty(bot, body.Message.Chat.ID, code); err != nil {
+	codePath := mainCodePath + code
+
+	if err := sendMessage(bot, body.Message.Chat.ID, codePath); err != nil {
 		fmt.Println("error in sending reply:", err)
 		return
 	}
 
+
 	// log a confirmation message if the message is sent successfully
-	fmt.Println("reply sent")
+	fmt.Printf("Reply sent: %q \n %q", body.Message.Text, codePath)
 }
 
-func sayTasty(bot *tgbotapi.BotAPI, chatID int64, code string) error {
-	codePath := mainCodePath + code
+func sendMessage(bot *tgbotapi.BotAPI, chatID int64, codePath string) error {
 
 	// Create a message config
-	msg := tgbotapi.NewMessage(chatID, codePath)
+	res, err := http.Get(codePath)
+
+	if err != nil {
+		fmt.Printf("Error downloading image: %s", err)
+	}
+
+	content, err := io.ReadAll(res.Body)
+
+	if err != nil {
+		fmt.Printf("Error read image: %s", err)
+	}
+
+	bytes := tgbotapi.FileBytes{Name: "image.jpg", Bytes: content}
+	msg := tgbotapi.NewPhoto(chatID, bytes)
 
 	// Add keyboard with buttons
+	msg.ReplyMarkup = addKeyboard()
+
+	// Send message with keyboard
+	// _, err := bot.Send(msg)
+	if _, err := bot.Send(msg); err != nil {
+		fmt.Printf("Error sending photo: %s", err)
+	}
+
+	return nil
+}
+
+func addKeyboard() tgbotapi.ReplyKeyboardMarkup {
 	keyboard := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("V-Sales_814"),
@@ -85,15 +112,7 @@ func sayTasty(bot *tgbotapi.BotAPI, chatID int64, code string) error {
 			tgbotapi.NewKeyboardButton("010_814-Exit_zal"),
 		),
 	)
-	msg.ReplyMarkup = keyboard
-
-	// Send message with keyboard
-	_, err := bot.Send(msg)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return keyboard
 }
 
 func main() {
