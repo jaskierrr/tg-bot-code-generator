@@ -3,15 +3,18 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
+	//"io"
 	"net/http"
 	"os"
+	"bytes"
+	"image/png"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
-)
 
-var mainCodePath = "https://barcodeapi.org/api/128/"
+	"github.com/boombuler/barcode"
+	"github.com/boombuler/barcode/code128"
+)
 
 func init() {
 	// loads values from .env into the system
@@ -48,42 +51,55 @@ func Handler(res http.ResponseWriter, req *http.Request) {
 
 	code := body.Message.Text
 
-	codePath := mainCodePath + code
-
-	if err := sendMessage(bot, body.Message.Chat.ID, codePath); err != nil {
+	if err := sendMessage(bot, body.Message.Chat.ID, code); err != nil {
 		fmt.Println("error in sending reply:", err)
 		return
 	}
 
-
 	// log a confirmation message if the message is sent successfully
-	fmt.Printf("Reply sent: %q \n %q", body.Message.Text, codePath)
+	fmt.Printf("Reply sent: %q \n", body.Message.Text)
 	fmt.Printf("Reply sent to: %q", body.Message.From.UserName)
 }
 
-func sendMessage(bot *tgbotapi.BotAPI, chatID int64, codePath string) error {
-
-	// Create a message config
-	res, err := http.Get(codePath)
-
+func createImg(codeText string) []byte {
+	code, err := code128.Encode(codeText)
 	if err != nil {
-		fmt.Printf("Error downloading image: %s", err)
+		fmt.Println("error creating code128: ", err)
 	}
 
-	content, err := io.ReadAll(res.Body)
-
+	// Create image
+	codeImg, err := barcode.Scale(code, 250, 100)
 	if err != nil {
-		fmt.Printf("Error read image: %s", err)
+		fmt.Println("error creating img: ", err)
 	}
 
-	bytes := tgbotapi.FileBytes{Name: "image.jpg", Bytes: content}
+	// Create buffer in memory
+	buf := new(bytes.Buffer)
+
+	// Encode image into PNG and write it to the buffer
+	err = png.Encode(buf, codeImg)
+	if err != nil {
+		fmt.Println("Ошибка при кодировании изображения: ", err)
+	}
+
+	// Convert the buffer to []bytes
+	imageBytes := buf.Bytes()
+
+	return imageBytes
+}
+
+func sendMessage(bot *tgbotapi.BotAPI, chatID int64, code string) error {
+	// Create image from text
+	imageBytes := createImg(code)
+	bytes := tgbotapi.FileBytes{Name: "image.png", Bytes: imageBytes}
+
+	// Preparing message with image
 	msg := tgbotapi.NewPhoto(chatID, bytes)
 
 	// Add keyboard with buttons
 	msg.ReplyMarkup = addKeyboard()
 
 	// Send message with keyboard
-	// _, err := bot.Send(msg)
 	if _, err := bot.Send(msg); err != nil {
 		fmt.Printf("Error sending photo: %s", err)
 	}
@@ -91,6 +107,7 @@ func sendMessage(bot *tgbotapi.BotAPI, chatID int64, codePath string) error {
 	return nil
 }
 
+// Create keyboard with buttons
 func addKeyboard() tgbotapi.ReplyKeyboardMarkup {
 	keyboard := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
