@@ -1,15 +1,11 @@
 package main
 
 import (
-	//"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-
-	//"net/url"
 	"os"
-	//"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
@@ -62,6 +58,7 @@ func Handler(res http.ResponseWriter, req *http.Request) {
 
 	// log a confirmation message if the message is sent successfully
 	fmt.Printf("Reply sent: %q \n %q", body.Message.Text, codePath)
+	fmt.Printf("Reply sent to: %q", body.Message.From.UserName)
 }
 
 func sendMessage(bot *tgbotapi.BotAPI, chatID int64, codePath string) error {
