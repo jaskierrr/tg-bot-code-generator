@@ -1,19 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	//"io"
+	"image/png"
 	"net/http"
 	"os"
-	"bytes"
-	"image/png"
+	"strconv"
+	"strings"
+	"unicode"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 
-	"github.com/boombuler/barcode"
-	"github.com/boombuler/barcode/code128"
+	"github.com/makiuchi-d/gozxing"
+	"github.com/makiuchi-d/gozxing/oned"
 )
 
 func init() {
@@ -23,7 +25,18 @@ func init() {
 	}
 }
 
-// This handler is called every time Telegram sends us a webhook event
+// const (
+// 	lines  int = 19
+// 	cells  int = 7
+// 	floors int = 2
+// )
+
+var (
+	line  int
+	cell  int
+	floor int
+)
+
 func Handler(res http.ResponseWriter, req *http.Request) {
 	// Initialize bot with token
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TOKEN"))
@@ -51,9 +64,45 @@ func Handler(res http.ResponseWriter, req *http.Request) {
 
 	code := body.Message.Text
 
+	if body.Message.Text == "Выбрать ячейку" {
+		if err := sendCell(bot, body.Message.Chat.ID); err != nil {
+			fmt.Println("error in sending cell:", err)
+		}
+		return
+	}
+
+	if strings.HasPrefix(body.Message.Text, "Ряд") || strings.HasPrefix(body.Message.Text, "Ячейка") || strings.HasPrefix(body.Message.Text, "Ярус") {
+		str := strings.Split(body.Message.Text, ": ")
+		switch str[0] {
+		case "Ряд":
+			line, _ = strconv.Atoi(str[1])
+		case "Ячейка":
+			cell, _ = strconv.Atoi(str[1])
+		case "Ярус":
+			floor, _ = strconv.Atoi(str[1])
+
+		}
+		fmt.Printf("Сообщене: %q", str[1])
+		if err := sendCell(bot, body.Message.Chat.ID); err != nil {
+			fmt.Println("error in sending cell:", err)
+		}
+		return
+	}
+
+	var isASCII bool = true
+
+	for i := 0; i < len(body.Message.Text); i++ {
+		if body.Message.Text[i] > unicode.MaxASCII {
+			isASCII = false
+		}
+	}
+	if !isASCII {
+		sendNotAsciiMessage(bot, body.Message.Chat.ID)
+		return
+	}
+
 	if err := sendMessage(bot, body.Message.Chat.ID, code); err != nil {
 		fmt.Println("error in sending reply:", err)
-		return
 	}
 
 	// log a confirmation message if the message is sent successfully
@@ -61,16 +110,24 @@ func Handler(res http.ResponseWriter, req *http.Request) {
 	fmt.Printf("Reply sent to: %q", body.Message.From.UserName)
 }
 
-func createImg(codeText string) []byte {
-	code, err := code128.Encode(codeText)
-	if err != nil {
-		fmt.Println("error creating code128: ", err)
+func sendNotAsciiMessage(bot *tgbotapi.BotAPI, chatID int64) error {
+	// Create image from text
+
+	msg := tgbotapi.NewMessage(chatID, "Генератор не поддерживает кириллицу")
+
+	// Send message with keyboard
+	if _, err := bot.Send(msg); err != nil {
+		fmt.Printf("Error sending photo: %s", err)
 	}
 
-	// Create image
-	codeImg, err := barcode.Scale(code, 250, 100)
+	return nil
+}
+
+func createImg(codeText string) []byte {
+	enc := oned.NewCode128Writer()
+	codeImg, err := enc.Encode(codeText, gozxing.BarcodeFormat_CODE_128, 300, 100, nil)
 	if err != nil {
-		fmt.Println("error creating img: ", err)
+		fmt.Println("error creating code128: ", err)
 	}
 
 	// Create buffer in memory
@@ -79,13 +136,100 @@ func createImg(codeText string) []byte {
 	// Encode image into PNG and write it to the buffer
 	err = png.Encode(buf, codeImg)
 	if err != nil {
-		fmt.Println("Ошибка при кодировании изображения: ", err)
+		fmt.Println("error encode img: ", err)
 	}
 
 	// Convert the buffer to []bytes
 	imageBytes := buf.Bytes()
 
 	return imageBytes
+}
+
+func sendCell(bot *tgbotapi.BotAPI, chatID int64) error {
+	switch {
+	case line == 0:
+		msg := tgbotapi.NewMessage(chatID, "Выберите ряд")
+
+		keyboard := tgbotapi.ReplyKeyboardMarkup{
+			InputFieldPlaceholder: "Выберите ряд",
+			ResizeKeyboard: true,
+		}
+
+		for i := 1; i < 5; i++ {
+			keyboard.Keyboard = append(keyboard.Keyboard, []tgbotapi.KeyboardButton{})
+			for j := i*5 - 5; j < i*5; j++ {
+				if j == 0 {
+					continue
+				}
+				keyboard.Keyboard[i-1] = append(keyboard.Keyboard[i-1], tgbotapi.NewKeyboardButton(fmt.Sprintf("Ряд: "+strconv.Itoa(j))))
+			}
+		}
+
+		msg.ReplyMarkup = keyboard
+		if _, err := bot.Send(msg); err != nil {
+			fmt.Printf("Error sending photo: %s", err)
+		}
+	case cell == 0:
+		msg := tgbotapi.NewMessage(chatID, "Выберите ячейку")
+
+		keyboard := tgbotapi.ReplyKeyboardMarkup{
+			InputFieldPlaceholder: "Выберите ячейку",
+			ResizeKeyboard: true,
+		}
+
+		for i := 1; i < 4; i++ {
+			keyboard.Keyboard = append(keyboard.Keyboard, []tgbotapi.KeyboardButton{})
+			for j := i*3 - 3; j < i*3; j++ {
+				if j == 0 {
+					continue
+				}
+				keyboard.Keyboard[i-1] = append(keyboard.Keyboard[i-1], tgbotapi.NewKeyboardButton(fmt.Sprintf("Ячейка: "+strconv.Itoa(j))))
+			}
+		}
+
+		msg.ReplyMarkup = keyboard
+		if _, err := bot.Send(msg); err != nil {
+			fmt.Printf("Error sending photo: %s", err)
+		}
+	case floor == 0:
+		msg := tgbotapi.NewMessage(chatID, "Выберите ярус")
+
+		keyboard := tgbotapi.ReplyKeyboardMarkup{
+			InputFieldPlaceholder: "Выберите ярус",
+			ResizeKeyboard: true,
+		}
+
+		for i := 1; i < 4; i++ {
+			keyboard.Keyboard = append(keyboard.Keyboard, []tgbotapi.KeyboardButton{})
+				keyboard.Keyboard[0] = append(keyboard.Keyboard[0], tgbotapi.NewKeyboardButton(fmt.Sprintf("Ярус: "+strconv.Itoa(i))))
+		}
+
+		msg.ReplyMarkup = keyboard
+		if _, err := bot.Send(msg); err != nil {
+			fmt.Printf("Error sending photo: %s", err)
+		}
+	default:
+		lineStr := strconv.Itoa(line)
+		cellStr := strconv.Itoa(cell)
+		floorStr := strconv.Itoa(floor)
+
+		if line < 10 {
+			lineStr = "0"+lineStr
+		}
+		if cell < 10 {
+			cellStr = "0"+cellStr
+		}
+
+		text := "010_814-" + lineStr + "-" + cellStr + "-" + floorStr
+		if err := sendMessage(bot, chatID, text); err != nil {
+			fmt.Println("error in sending reply:", err)
+		}
+		line = 0
+		cell = 0
+		floor = 0
+	}
+	fmt.Printf("Line is: %d", line)
+	return nil
 }
 
 func sendMessage(bot *tgbotapi.BotAPI, chatID int64, code string) error {
@@ -98,6 +242,8 @@ func sendMessage(bot *tgbotapi.BotAPI, chatID int64, code string) error {
 
 	// Add keyboard with buttons
 	msg.ReplyMarkup = addKeyboard()
+
+	msg.Caption = code
 
 	// Send message with keyboard
 	if _, err := bot.Send(msg); err != nil {
@@ -112,18 +258,18 @@ func addKeyboard() tgbotapi.ReplyKeyboardMarkup {
 	keyboard := tgbotapi.NewReplyKeyboard(
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("V-Sales_814"),
+			tgbotapi.NewKeyboardButton("010_814-Exit_Dost"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("Discount_814"),
 			tgbotapi.NewKeyboardButton("V-Discount_814"),
 		),
 		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("010_814-Exit_Dost"),
-			tgbotapi.NewKeyboardButton("010_814-01-02-3"),
-		),
-		tgbotapi.NewKeyboardButtonRow(
 			tgbotapi.NewKeyboardButton("010_814-Exit_sklad"),
 			tgbotapi.NewKeyboardButton("010_814-Exit_zal"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("Выбрать ячейку"),
 		),
 	)
 	return keyboard
