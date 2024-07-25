@@ -15,7 +15,8 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/makiuchi-d/gozxing"
-	"github.com/makiuchi-d/gozxing/oned"
+	//"github.com/makiuchi-d/gozxing/oned"
+	"github.com/makiuchi-d/gozxing/qrcode"
 )
 
 func init() {
@@ -124,10 +125,10 @@ func sendNotAsciiMessage(bot *tgbotapi.BotAPI, chatID int64) error {
 }
 
 func createImg(codeText string) []byte {
-	enc := oned.NewCode128Writer()
-	codeImg, err := enc.Encode(codeText, gozxing.BarcodeFormat_CODE_128, 300, 100, nil)
+	enc := qrcode.NewQRCodeWriter()
+	codeImg, err := enc.Encode(codeText, gozxing.BarcodeFormat_QR_CODE, 256, 256, nil)
 	if err != nil {
-		fmt.Println("error creating code128: ", err)
+		fmt.Println("error creating QR: ", err)
 	}
 
 	// Create buffer in memory
