@@ -1,1 +1,1 @@
-Telegram bot designed to generate barcodes in code128 format
+Telegram bot designed to generate QR codes for Hoff warehouse
